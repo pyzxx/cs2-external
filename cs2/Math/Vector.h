@@ -120,6 +120,16 @@ struct Vector3
     float x, y, z;
 };
 
+namespace cache
+{
+    inline uintptr_t localplayer;
+    inline Vector3 localPos;
+    inline uint8_t localTeam;
+    inline view_matrix_t view_matrix;
+    inline uintptr_t entidade;
+    inline Vector3 origin;
+}
+
 void simMouseclick()
 {
     INPUT input = { 0 };

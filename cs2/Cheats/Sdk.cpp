@@ -7,15 +7,19 @@
 #include "../Math/Vector.h"
 #include "../globals/Draw.hpp"
 
+
 //pegar o client do cs2
 bool Sdk::ThreadLoop()
 {
 	
 	DWORD pid = mem.getPid(L"cs2.exe"); //pid
+	std::cout << "pid ~ " << pid << std::endl;
 	if (!pid)
 		return false;
 
+
 	sdk.base = mem.GetBase(pid, L"client.dll");
+	std::cout << "base ~ " << sdk.base;
 	if (!sdk.base)
 		return false;
 
@@ -61,22 +65,19 @@ void Sdk::RenderDbg()
 			return;
 	}
 }
+
 void Sdk::RenderEsp()
 {
-	//localPlayer
-	uintptr_t localplayer = mem.Read<uintptr_t>(sdk.base + offsets::dwLocalPlayerPawn);
-	Vector3 localPos = mem.Read<Vector3>(localplayer + offsets::m_vOldOrigin);
-	uint8_t localTeam = mem.Read<uint8_t>(localplayer + offsets::m_iTeamNum);
 
-	//game
-	view_matrix_t view_matrix = mem.Read<view_matrix_t>(sdk.base + offsets::dwViewMatrix);
-
-	//entidades
-	uintptr_t entidade = mem.Read<uintptr_t>(sdk.base + offsets::dwEntityList);
+	cache::localplayer = mem.Read<uintptr_t>(sdk.base + offsets::dwLocalPlayerPawn);
+	cache::localPos = mem.Read<Vector3>(cache::localplayer + offsets::m_vOldOrigin); // localorigin
+	cache::localTeam = mem.Read<uint8_t>(cache::localplayer + offsets::m_iTeamNum);
+	cache::view_matrix = mem.Read<view_matrix_t>(sdk.base + offsets::dwViewMatrix);
+	cache::entidade = mem.Read<uintptr_t>(sdk.base + offsets::dwEntityList);
 
 	for (int i = 0; i < 64; i++)
 	{
-		uintptr_t listEntry = mem.Read<uintptr_t>(entidade + 0x10);
+		uintptr_t listEntry = mem.Read<uintptr_t>(cache::entidade + 0x10);
 		if (listEntry == 0)
 			continue;
 
@@ -88,7 +89,7 @@ void Sdk::RenderEsp()
 		if (pawnHandle == 0)
 			continue;
 
-		uintptr_t listEntry2 = mem.Read<uintptr_t>(entidade + 0x8 * ((pawnHandle & 0x7FFF) >> 9) + 0x10);
+		uintptr_t listEntry2 = mem.Read<uintptr_t>(cache::entidade + 0x8 * ((pawnHandle & 0x7FFF) >> 9) + 0x10);
 
 		uintptr_t currentPawn = mem.Read<uintptr_t>(listEntry2 + 0x78 * (pawnHandle & 0x1FF));
 		if (currentPawn == 0)
@@ -99,15 +100,6 @@ void Sdk::RenderEsp()
 		uint8_t enemyTeam = mem.Read<uint8_t>(currentPawn + offsets::m_iTeamNum);
 		int lifeState = mem.Read<int>(currentPawn + offsets::m_lifeState);
 
-		if (g.TeamCheck == true)
-		{
-			if (localTeam == enemyTeam)
-				continue;
-		}
-
-		if (healthentity <= 0 || lifeState != 256 || currentPawn == localplayer)
-			continue;
-
 		//preparamentos para desenhar 
 
 		//acessar os bones da cabeça e do pé
@@ -115,19 +107,37 @@ void Sdk::RenderEsp()
 		auto bonearray = mem.Read<uintptr_t>(gamescene + offsets::m_modelState + 0x80);
 
 		//pos bones
-		Vector3 origin = mem.Read<Vector3>(currentPawn + offsets::m_vOldOrigin);
-
-		Vector3 head3d = mem.Read<Vector3>(bonearray + bones::head * 32); 
+		Vector3 origin = mem.Read<Vector3>(currentPawn + offsets::m_vOldOrigin); // entity position
+		
+		Vector3 head3d = mem.Read<Vector3>(bonearray + bones::head * 32);
 		Vector3 feet3d = mem.Read<Vector3>(bonearray + bones::right_feet * 32);
 
 		//pos bones 2d
-		Vector3 origin2d = origin.WTS(view_matrix);
-		Vector3 head2d = head3d.WTS(view_matrix);
-		Vector3 feet2d = feet3d.WTS(view_matrix);
+		Vector3 origin2d = origin.WTS(cache::view_matrix); //positon entity 2d
+		Vector3 playerPos2d = cache::localPos.WTS(cache::view_matrix);
+
+		Vector3 head2d = head3d.WTS(cache::view_matrix);
+		Vector3 feet2d = feet3d.WTS(cache::view_matrix);
 
 		float headHeigth = (feet2d.y - head2d.y) / 8;
 		float heigth = feet2d.y - head2d.y + 15.f;
 		float width = heigth / 1.4f;
+
+		auto SpottedByMask = mem.Read<uintptr_t>(currentPawn + offsets::m_entitySpottedState + offsets::m_bSpotted);
+
+
+		bool is_visible = SpottedByMask & (static_cast<unsigned long long>(1) << cache::localplayer);
+
+		if (g.TeamCheck == true)
+		{
+			if (cache::localTeam == enemyTeam)
+				continue;
+		}
+
+		if (healthentity <= 0 || lifeState != 256 || currentPawn == cache::localplayer)
+			continue;
+
+		ImVec4 boxColor = is_visible ? g.boxColorVI : g.boxColorNO;
 
 		if (g.e_box == true)
 		{
@@ -138,11 +148,88 @@ void Sdk::RenderEsp()
 					head2d.y - headHeigth,
 					width,
 					heigth,
-					g.boxColor,
+					boxColor,
 					1
 				);
 			}
 		}
+
+		ImVec4 HealthBarColor = desenho::CalculateHealthColor(healthentity);
+
+		if (g.healthBar == true)
+		{
+			if (head2d.z > 0.1f && feet2d.z > 0.1f)
+			{
+				desenho::DrawHealthBar(
+					feet2d.x - width / 2,
+					head2d.y - headHeigth,
+					heigth,
+					healthentity,
+					HealthBarColor
+				);
+			}
+
+		}
+	
+		//screens 
+		Vector3 screenCentersup = { screenWidth / 2.0f,0.0f }; //center sup
+		Vector3 screenCenterinf = { screenWidth / 2.0f,screenHeight - 1.0f,0.0f };
+
+		if (g.lines == true)
+		{
+			if (head2d.z > 0.1f && feet2d.z > 0.1f)
+			{
+				desenho::Line(
+					screenCentersup.x, screenCentersup.y,//CenterScreen xy
+					head2d.x, head2d.y,//head entity xy
+					ImVec4(1.0f, 1.0f, 1.0f, 1.0f),//color
+					1 //thickness
+				);
+			}
+		}
+
+		//distance
+
+		if (g.distance == true)
+		{
+			if (head2d.z > 0.1f && feet2d.z > 0.1f)
+			{
+				desenho::DrawDistance(
+					playerPos2d.x, playerPos2d.y,
+					origin2d.x, origin2d.y,
+					ImVec4(1.0f, 1.0f, 1.0f, 1.0f),//color
+					feet2d.x - width / 2,
+					head2d.y - headHeigth,
+					width,
+					heigth
+					);
+			}
+		}
+
+		//skeleton
+
+		if (g.skeleton == true)
+		{
+			for (int i = 0; i < sizeof(boneConnections) / sizeof(boneConnections[0]); i++)
+			{
+				int bone1 = boneConnections[i].bone1;
+				int bone2 = boneConnections[i].bone2;
+
+				Vector3 VectorBone1 = mem.Read<Vector3>(bonearray + bone1 * 32);
+				Vector3 VectorBone2 = mem.Read<Vector3>(bonearray + bone2 * 32);
+
+				Vector3 b1 = VectorBone1.WTS(cache::view_matrix);
+				Vector3 b2 = VectorBone2.WTS(cache::view_matrix);
+
+				if (b1.z > 0.1f && b2.z > 0.1f) {
+					desenho::Line(b1.x, b1.y, b2.x, b2.y, g.boxColorNO, 1);
+
+				}
+
+
+			}
+		}
+	
 
 	}
 }

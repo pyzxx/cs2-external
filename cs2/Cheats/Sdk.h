@@ -9,6 +9,7 @@ class Sdk
 public:
 	bool ThreadLoop();
 	void RenderEsp();
+	void actorsLoop();
 	void RenderDbg();
 
 	uintptr_t base = 0;

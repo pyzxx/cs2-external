@@ -141,10 +141,10 @@ void overlayX::menu() {
                         // Configurações do ESP
                   
                         ImGui::Checkbox("Box", &g.e_box);
-
-                      
-                      
-
+                        ImGui::Checkbox("HealthBar", &g.healthBar);
+                        ImGui::Checkbox("Lines", &g.lines);
+                        ImGui::Checkbox("distance", &g.distance);
+                        ImGui::Checkbox("skeleton", &g.skeleton);
                     } custom.end_child();
 
                     SameLine();
@@ -155,7 +155,7 @@ void overlayX::menu() {
                       
 
                         // Cor para Box
-                        ImGui::ColorEdit4("Box", (float*)&g.boxColor);
+                        
 
                         // Cor para Lines
                        
